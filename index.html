@@ -1,0 +1,484 @@
+<!doctype html>
+<!--
+  Emissor de licenças do OpticDX para o iPhone (ferramenta do fabricante, não vai para o cliente). Faz o mesmo que o
+  EmissorLicenca do Windows: mesma chave, mesmo formato de licença (LicencaOpticDx.cs), e confere cada licença com a
+  chave pública oficial antes de mostrar. A chave privada não fica nesta página: é escolhida uma vez no aparelho e
+  guardada nele cifrada com uma senha (PBKDF2 + AES-GCM); a senha é pedida na primeira emissão de cada vez que o app abre.
+  Instalar: abrir no Safari, Compartilhar > Adicionar à Tela de Início. Depois funciona sem internet (sw.js).
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Ferramenta interna: fora das buscas (Google e outros). -->
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="googlebot" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Licenças OpticDX">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#0b5f8a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icone.png">
+<link rel="icon" href="icone.png">
+<title>Licenças OpticDX</title>
+<style>
+  :root {
+    --fundo: #f2f4f7; --cartao: #ffffff; --texto: #1c2430; --suave: #5f6b7a; --borda: #d5dbe3;
+    --marca: #0b5f8a; --marca-texto: #ffffff; --ok: #1d7a46; --erro: #b3261e; --campo: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #10151c; --cartao: #1a212b; --texto: #e8edf3; --suave: #9aa6b4; --borda: #2e3947;
+      --marca: #3a9bd0; --marca-texto: #08131c; --ok: #5cc98a; --erro: #ff8a80; --campo: #121820;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--fundo); color: var(--texto);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  main { max-width: 560px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; }
+  header img { width: 44px; height: 44px; border-radius: 10px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  label { display: block; font-weight: 600; font-size: 14px; margin: 12px 0 6px; }
+  label:first-of-type { margin-top: 0; }
+  input, textarea {
+    width: 100%; font: inherit; color: var(--texto); background: var(--campo);
+    border: 1px solid var(--borda); border-radius: 10px; padding: 11px 12px;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--marca); outline-offset: -1px; }
+  #codigo { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 16px; text-transform: uppercase; }
+  textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; resize: none; height: 120px; word-break: break-all; }
+  .dica { font-size: 13px; color: var(--suave); margin-top: 6px; }
+  .dica.ok { color: var(--ok); } .dica.erro { color: var(--erro); }
+  button {
+    font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 14px; cursor: pointer;
+    background: var(--marca); color: var(--marca-texto); width: 100%; margin-top: 14px;
+  }
+  button.secundario { background: transparent; color: var(--marca); border: 1px solid var(--borda); }
+  button:disabled { opacity: .5; }
+  .botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .botoes button { margin-top: 8px; }
+  .botoes button:first-child { grid-column: 1 / -1; }
+  #situacao { font-size: 14px; margin: 10px 0 0; min-height: 1em; }
+  #situacao.ok { color: var(--ok); } #situacao.erro { color: var(--erro); }
+  .historico { list-style: none; margin: 0; padding: 0; }
+  .historico li { border-top: 1px solid var(--borda); padding: 9px 0; font-size: 14px; }
+  .historico li:first-child { border-top: 0; }
+  .historico .linha2 { color: var(--suave); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .oculto { display: none !important; }
+  .aviso { font-size: 12px; color: var(--suave); text-align: center; margin-top: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icone.png" alt="">
+    <div>
+      <h1>Licenças OpticDX</h1>
+      <div class="dica" style="margin:0">Emissor do fabricante</div>
+    </div>
+  </header>
+
+  <!-- Primeira vez (ou ao trocar a chave): escolher o arquivo da chave e criar a senha. -->
+  <section id="telaChave" class="cartao oculto">
+    <h2>Configurar a chave</h2>
+    <div class="dica" style="margin:0 0 10px">Escolha o arquivo <b>chave-privada-patch.pem</b> (passe-o para o iPhone pelo AirDrop, iCloud Drive ou cabo e escolha em Arquivos). Ele fica guardado só neste aparelho, protegido pela senha. Depois de configurar, apague a cópia que ficou em Arquivos.</div>
+    <label for="arquivoChave">Arquivo da chave privada</label>
+    <input id="arquivoChave" type="file" accept=".pem,application/x-pem-file,text/plain">
+    <label for="novaSenha">Crie uma senha para emitir</label>
+    <input id="novaSenha" type="password" autocomplete="new-password">
+    <label for="repetirSenha">Repita a senha</label>
+    <input id="repetirSenha" type="password" autocomplete="new-password">
+    <button id="salvarChave">Guardar a chave</button>
+    <button id="cancelarChave" class="secundario oculto">Cancelar</button>
+    <p id="situacaoChave" class="dica"></p>
+  </section>
+
+  <section id="telaEmissao" class="oculto">
+    <div class="cartao">
+      <label for="codigo">Código do computador do cliente</label>
+      <input id="codigo" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="8SDFH-XHT9D-CDYKX-D187Q-9X72D">
+      <div id="situacaoCodigo" class="dica">Aparece na tela "Ativação do OpticDX" do cliente.</div>
+      <label for="clinica">Nome da clínica</label>
+      <input id="clinica" autocomplete="off" autocapitalize="words">
+      <div id="campoSenha">
+        <label for="senha">Senha</label>
+        <input id="senha" type="password" autocomplete="current-password">
+      </div>
+      <button id="emitir">Emitir licença</button>
+      <p id="situacao"></p>
+    </div>
+
+    <div id="resultado" class="cartao oculto">
+      <h2>Licença para enviar ao cliente</h2>
+      <textarea id="licenca" readonly></textarea>
+      <div class="botoes">
+        <button id="enviarMensagem">Enviar mensagem ao cliente</button>
+        <button id="copiarLicenca" class="secundario">Copiar licença</button>
+        <button id="salvarArquivo" class="secundario">Arquivo .opticdx</button>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <details id="caixaHistorico">
+        <summary>Licenças emitidas neste iPhone</summary>
+        <ul id="historico" class="historico" style="margin-top:10px"></ul>
+        <button id="exportarHistorico" class="secundario">Exportar histórico (.csv)</button>
+      </details>
+    </div>
+
+    <div class="cartao">
+      <details>
+        <summary>Chave</summary>
+        <div class="dica">A chave fica guardada neste iPhone, cifrada pela senha. Se esquecer a senha, configure a chave de novo.</div>
+        <button id="trocarChave" class="secundario">Trocar a chave ou a senha</button>
+      </details>
+    </div>
+  </section>
+
+  <p class="aviso">Ferramenta interna da OpticDX. Não compartilhe.</p>
+</main>
+
+<script>
+"use strict";
+
+// --- Mesmas regras de LicencaOpticDx.cs -------------------------------------------------------------------------
+const CABECALHO = "OPTICDX-LICENCA-1";
+const DOMINIO = "OPTICDX-LICENCA-v1\n";
+const ALFABETO = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // base32 de Crockford
+const BYTES_CODIGO = 15;
+const CHAVE_PUBLICA_OFICIAL = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/qcjCLRT45HdBPxSVzl5Dm3TEXYl
+iyv4DvIDUr0d8ifIfYtOzjPMh3m0M3xmfyumCQIyjIZLf1ndtVrQ4PM9UQ==
+-----END PUBLIC KEY-----`;
+
+// Luhn mod 32, como DigitoVerificador.
+function digitoVerificador(caracteres) {
+  let soma = 0, fator = 2;
+  for (let i = caracteres.length - 1; i >= 0; i--) {
+    const parcela = fator * ALFABETO.indexOf(caracteres[i]);
+    soma += Math.floor(parcela / 32) + (parcela % 32);
+    fator = fator === 2 ? 1 : 2;
+  }
+  return ALFABETO[(32 - (soma % 32)) % 32];
+}
+
+function formatar(dados) {
+  let texto = "", acumulado = 0, bits = 0;
+  for (const b of dados) {
+    acumulado = ((acumulado << 8) | b) & 0xffff;
+    bits += 8;
+    while (bits >= 5) { bits -= 5; texto += ALFABETO[(acumulado >> bits) & 31]; }
+  }
+  texto += digitoVerificador(texto);
+  return texto.match(/.{5}/g).join("-");
+}
+
+function lerCodigo(texto) {
+  if (!texto || !texto.trim()) return null;
+  const limpo = texto.toUpperCase().replace(/[-\s]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  if (limpo.length !== BYTES_CODIGO * 8 / 5 + 1 || [...limpo].some(c => ALFABETO.indexOf(c) < 0)) return null;
+  const dados = new Uint8Array(BYTES_CODIGO);
+  let acumulado = 0, bits = 0, posicao = 0;
+  for (const c of limpo.slice(0, -1)) {
+    acumulado = ((acumulado << 5) | ALFABETO.indexOf(c)) & 0xffff;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; dados[posicao++] = (acumulado >> bits) & 0xff; }
+  }
+  return digitoVerificador(limpo.slice(0, -1)) === limpo.slice(-1) ? dados : null;
+}
+
+function normalizarCodigo(texto) {
+  const dados = lerCodigo(texto);
+  return dados ? formatar(dados) : null;
+}
+
+function base64Url(bytes) {
+  let binario = "";
+  for (const b of new Uint8Array(bytes)) binario += String.fromCharCode(b);
+  return btoa(binario).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function deBase64(texto) {
+  const binario = atob(texto);
+  return Uint8Array.from(binario, c => c.charCodeAt(0));
+}
+
+function derDoPem(pem, tipo) {
+  const corpo = pem.match(new RegExp(`-----BEGIN ${tipo}-----([\\s\\S]+?)-----END ${tipo}-----`));
+  if (!corpo) return null;
+  return deBase64(corpo[1].replace(/\s/g, ""));
+}
+
+const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
+const ASSINATURA = { name: "ECDSA", hash: "SHA-256" }; // r||s (IEEE P1363), o mesmo formato do ECDsa.SignData do .NET
+
+async function emitir(codigo, clinica, chavePrivada) {
+  const hoje = new Date();
+  const em = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+  const json = JSON.stringify({ V: 1, Cli: clinica, Maq: codigo, Em: em });
+  const conteudo = base64Url(new TextEncoder().encode(json));
+  const assinatura = await crypto.subtle.sign(ASSINATURA, chavePrivada, new TextEncoder().encode(DOMINIO + conteudo));
+  const licenca = `${CABECALHO}.${conteudo}.${base64Url(assinatura)}`;
+  if (!(await conferePelaChaveOficial(conteudo, assinatura))) {
+    throw new Error("A chave guardada não é a chave oficial do OpticDX: a licença não seria aceita pelo app.");
+  }
+  return licenca;
+}
+
+async function conferePelaChaveOficial(conteudo, assinatura) {
+  const publica = await crypto.subtle.importKey("spki", derDoPem(CHAVE_PUBLICA_OFICIAL, "PUBLIC KEY"), ECDSA, false, ["verify"]);
+  return crypto.subtle.verify(ASSINATURA, publica, assinatura, new TextEncoder().encode(DOMINIO + conteudo));
+}
+
+// --- Chave guardada no aparelho, cifrada pela senha -------------------------------------------------------------
+const ITENS = { chave: "opticdx-chave-cifrada", historico: "opticdx-historico" };
+const ITERACOES = 600000;
+
+function ler(item) { try { return JSON.parse(localStorage.getItem(item)); } catch { return null; } }
+function gravar(item, valor) { localStorage.setItem(item, JSON.stringify(valor)); }
+
+async function chaveDaSenha(senha, sal) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(senha), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt: sal, iterations: ITERACOES, hash: "SHA-256" }, base,
+    { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+
+async function guardarChave(pem, senha) {
+  const der = derDoPem(pem, "PRIVATE KEY");
+  if (!der) throw new Error("Este arquivo não é a chave privada (esperado chave-privada-patch.pem).");
+  let privada;
+  try {
+    privada = await crypto.subtle.importKey("pkcs8", der, ECDSA, false, ["sign"]);
+  } catch {
+    throw new Error("Não foi possível ler a chave deste arquivo.");
+  }
+  const teste = base64Url(new TextEncoder().encode("teste"));
+  const assinatura = await crypto.subtle.sign(ASSINATURA, privada, new TextEncoder().encode(DOMINIO + teste));
+  if (!(await conferePelaChaveOficial(teste, assinatura))) {
+    throw new Error("Esta não é a chave oficial do OpticDX: as licenças não seriam aceitas pelo app.");
+  }
+
+  const sal = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cifra = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await chaveDaSenha(senha, sal), der);
+  gravar(ITENS.chave, { sal: base64Url(sal), iv: base64Url(iv), cifra: base64Url(cifra) });
+  return privada;
+}
+
+function deBase64Url(texto) {
+  const base64 = texto.replace(/-/g, "+").replace(/_/g, "/");
+  return deBase64(base64 + "===".slice((base64.length + 3) % 4));
+}
+
+async function abrirChave(senha) {
+  const guardada = ler(ITENS.chave);
+  let der;
+  try {
+    der = await crypto.subtle.decrypt({ name: "AES-GCM", iv: deBase64Url(guardada.iv) },
+      await chaveDaSenha(senha, deBase64Url(guardada.sal)), deBase64Url(guardada.cifra));
+  } catch {
+    throw new Error("Senha errada.");
+  }
+  return crypto.subtle.importKey("pkcs8", der, ECDSA, false, ["sign"]);
+}
+
+// --- Tela ------------------------------------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+let chaveAberta = null;   // fica só na memória enquanto o app está aberto
+let emitida = null;       // { clinica, licenca }
+
+function mostrar(elemento, texto, tipo) {
+  elemento.textContent = texto;
+  elemento.className = elemento.id === "situacao" ? (tipo || "") : `dica ${tipo || ""}`;
+}
+
+function telaInicial() {
+  const temChave = !!ler(ITENS.chave);
+  $("telaChave").classList.toggle("oculto", temChave);
+  $("telaEmissao").classList.toggle("oculto", !temChave);
+  $("campoSenha").classList.toggle("oculto", !!chaveAberta);
+  desenharHistorico();
+}
+
+$("codigo").addEventListener("input", () => {
+  const texto = $("codigo").value;
+  if (!texto.trim()) {
+    mostrar($("situacaoCodigo"), "Aparece na tela \"Ativação do OpticDX\" do cliente.");
+  } else if (normalizarCodigo(texto)) {
+    mostrar($("situacaoCodigo"), "Código válido.", "ok");
+  } else {
+    mostrar($("situacaoCodigo"), "Código incompleto ou com algum caractere errado: confira com o cliente.", "erro");
+  }
+});
+
+$("salvarChave").addEventListener("click", async () => {
+  const arquivo = $("arquivoChave").files[0];
+  const senha = $("novaSenha").value;
+  if (!arquivo) return mostrar($("situacaoChave"), "Escolha o arquivo da chave.", "erro");
+  if (senha.length < 6) return mostrar($("situacaoChave"), "Use uma senha com pelo menos 6 caracteres.", "erro");
+  if (senha !== $("repetirSenha").value) return mostrar($("situacaoChave"), "As duas senhas não são iguais.", "erro");
+  $("salvarChave").disabled = true;
+  mostrar($("situacaoChave"), "Guardando...");
+  try {
+    chaveAberta = await guardarChave(await arquivo.text(), senha);
+    $("arquivoChave").value = $("novaSenha").value = $("repetirSenha").value = "";
+    mostrar($("situacaoChave"), "");
+    telaInicial();
+    mostrar($("situacao"), "Chave guardada. Já pode emitir licenças.", "ok");
+  } catch (erro) {
+    mostrar($("situacaoChave"), erro.message, "erro");
+  } finally {
+    $("salvarChave").disabled = false;
+  }
+});
+
+$("trocarChave").addEventListener("click", () => {
+  $("telaChave").classList.remove("oculto");
+  $("telaEmissao").classList.add("oculto");
+  $("cancelarChave").classList.remove("oculto");
+});
+
+$("cancelarChave").addEventListener("click", () => {
+  $("cancelarChave").classList.add("oculto");
+  mostrar($("situacaoChave"), "");
+  telaInicial();
+});
+
+$("emitir").addEventListener("click", async () => {
+  const codigo = normalizarCodigo($("codigo").value);
+  const clinica = $("clinica").value.trim();
+  if (!codigo) return mostrar($("situacao"), "Confira o código do computador: ele tem 5 grupos de 5 caracteres.", "erro");
+  if (!clinica) return mostrar($("situacao"), "Digite o nome da clínica.", "erro");
+  $("emitir").disabled = true;
+  try {
+    if (!chaveAberta) {
+      if (!$("senha").value) throw new Error("Digite a senha.");
+      mostrar($("situacao"), "Abrindo a chave...");
+      chaveAberta = await abrirChave($("senha").value);
+      $("senha").value = "";
+      $("campoSenha").classList.add("oculto");
+    }
+    const licenca = await emitir(codigo, clinica, chaveAberta);
+    emitida = { clinica, licenca };
+    $("codigo").value = codigo;
+    $("licenca").value = licenca;
+    $("resultado").classList.remove("oculto");
+    registrar(clinica, codigo);
+    mostrar($("situacao"), `Licença emitida para "${clinica}". Envie ao cliente pelo botão abaixo.`, "ok");
+    $("resultado").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (erro) {
+    mostrar($("situacao"), erro.message, "erro");
+  } finally {
+    $("emitir").disabled = false;
+  }
+});
+
+function mensagemParaCliente() {
+  return `Olá! Segue a licença do OpticDX para ${emitida.clinica}.\n` +
+    `No OpticDX, cole o texto abaixo no campo "Licença recebida" e clique em Ativar:\n\n${emitida.licenca}`;
+}
+
+async function copiar(texto, aviso) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    mostrar($("situacao"), aviso, "ok");
+  } catch {
+    $("licenca").select();
+    mostrar($("situacao"), "Não foi possível copiar sozinho: toque e segure o texto da licença para copiar.", "erro");
+  }
+}
+
+// No iPhone abre a folha de compartilhar (WhatsApp, Mail...); onde não houver, copia.
+$("enviarMensagem").addEventListener("click", async () => {
+  if (navigator.share) {
+    try { await navigator.share({ text: mensagemParaCliente() }); return; }
+    catch (erro) { if (erro.name === "AbortError") return; }
+  }
+  copiar(mensagemParaCliente(), "Mensagem copiada. Cole na conversa com o cliente (WhatsApp ou e-mail).");
+});
+
+$("copiarLicenca").addEventListener("click", () => copiar(emitida.licenca, "Licença copiada. Cole na conversa com o cliente."));
+
+function nomeDeArquivo(texto) { return texto.replace(/[\\/:*?"<>|]/g, "_"); }
+
+async function compartilharArquivo(nome, conteudo, tipo, aviso) {
+  const arquivo = new File([conteudo], nome, { type: tipo });
+  if (navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+    try { await navigator.share({ files: [arquivo] }); return; }
+    catch (erro) { if (erro.name === "AbortError") return; }
+  }
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(arquivo);
+  link.download = nome;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+  mostrar($("situacao"), aviso, "ok");
+}
+
+$("salvarArquivo").addEventListener("click", () =>
+  compartilharArquivo(`licenca-${nomeDeArquivo(emitida.clinica)}.opticdx`, emitida.licenca, "application/octet-stream",
+    "Arquivo salvo. O cliente abre pelo botão \"Abrir arquivo de licença...\"."));
+
+// --- Histórico (só deste aparelho; o do Windows fica em licencas-emitidas.csv) ----------------------------------
+function registrar(clinica, codigo) {
+  try {
+    const agora = new Date();
+    const data = `${String(agora.getDate()).padStart(2, "0")}/${String(agora.getMonth() + 1).padStart(2, "0")}/${agora.getFullYear()} ` +
+      `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
+    const historico = ler(ITENS.historico) || [];
+    historico.unshift({ data, clinica, codigo });
+    gravar(ITENS.historico, historico);
+    desenharHistorico();
+  } catch {
+    // O histórico é só uma ajuda: não impede a emissão.
+  }
+}
+
+function desenharHistorico() {
+  const historico = ler(ITENS.historico) || [];
+  const lista = $("historico");
+  lista.replaceChildren(...historico.map(({ data, clinica, codigo }) => {
+    const item = document.createElement("li");
+    const linha1 = document.createElement("div");
+    linha1.textContent = `${clinica} — ${data}`;
+    const linha2 = document.createElement("div");
+    linha2.className = "linha2";
+    linha2.textContent = codigo;
+    item.append(linha1, linha2);
+    return item;
+  }));
+  if (!historico.length) {
+    const vazio = document.createElement("li");
+    vazio.className = "dica";
+    vazio.textContent = "Nenhuma licença emitida ainda.";
+    lista.append(vazio);
+  }
+  $("exportarHistorico").disabled = !historico.length;
+}
+
+$("exportarHistorico").addEventListener("click", () => {
+  const historico = ler(ITENS.historico) || [];
+  const csv = "﻿data;clinica;codigo do computador\r\n" +
+    [...historico].reverse().map(h => `${h.data};${h.clinica.replace(/;/g, ",")};${h.codigo}`).join("\r\n") + "\r\n";
+  compartilharArquivo("licencas-emitidas-iphone.csv", csv, "text/csv", "Histórico exportado.");
+});
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(() => {});
+}
+telaInicial();
+</script>
+</body>
+</html>
