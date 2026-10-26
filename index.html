@@ -63,6 +63,7 @@
   }
   button.secundario { background: transparent; color: var(--marca); border: 1px solid var(--borda); }
   button:disabled { opacity: .5; }
+  button.voltar { width: auto; margin: 0 0 10px; padding: 4px 0; background: none; color: var(--marca); font-weight: 600; }
   .botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .botoes button { margin-top: 8px; }
   .botoes button:first-child { grid-column: 1 / -1; }
@@ -89,6 +90,7 @@
 
   <!-- Primeira vez (ou ao trocar a chave): escolher o arquivo da chave e criar a senha. -->
   <section id="telaChave" class="cartao oculto">
+    <button id="voltarChave" class="voltar oculto">‹ Voltar</button>
     <h2>Configurar a chave</h2>
     <div class="dica" style="margin:0 0 10px">Escolha o arquivo <b>chave-privada-patch.pem</b> (passe-o para o iPhone pelo AirDrop, iCloud Drive ou cabo e escolha em Arquivos). Ele fica guardado só neste aparelho, protegido pela senha. Depois de configurar, apague a cópia que ficou em Arquivos.</div>
     <label for="arquivoChave">Arquivo da chave privada</label>
@@ -98,7 +100,7 @@
     <label for="repetirSenha">Repita a senha</label>
     <input id="repetirSenha" type="password" autocomplete="new-password">
     <button id="salvarChave">Guardar a chave</button>
-    <button id="cancelarChave" class="secundario oculto">Cancelar</button>
+    <button id="cancelarChave" class="secundario oculto">Voltar sem trocar a chave</button>
     <p id="situacaoChave" class="dica"></p>
   </section>
 
@@ -345,13 +347,20 @@ $("trocarChave").addEventListener("click", () => {
   $("telaChave").classList.remove("oculto");
   $("telaEmissao").classList.add("oculto");
   $("cancelarChave").classList.remove("oculto");
+  $("voltarChave").classList.remove("oculto");
+  window.scrollTo(0, 0);
 });
 
-$("cancelarChave").addEventListener("click", () => {
+// Voltar à emissão sem trocar a chave (só aparece quando já há uma chave guardada).
+function voltarSemTrocar() {
   $("cancelarChave").classList.add("oculto");
+  $("voltarChave").classList.add("oculto");
+  $("arquivoChave").value = $("novaSenha").value = $("repetirSenha").value = "";
   mostrar($("situacaoChave"), "");
   telaInicial();
-});
+}
+$("cancelarChave").addEventListener("click", voltarSemTrocar);
+$("voltarChave").addEventListener("click", voltarSemTrocar);
 
 $("emitir").addEventListener("click", async () => {
   const codigo = normalizarCodigo($("codigo").value);

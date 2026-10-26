@@ -1,5 +1,5 @@
 // Guarda a página no iPhone para o emissor abrir sem internet. Ao publicar uma versão nova, troque o nome do cache.
-const CACHE = "emissor-opticdx-1";
+const CACHE = "emissor-opticdx-2";
 const ARQUIVOS = ["./", "index.html", "manifest.webmanifest", "icone.png"];
 
 self.addEventListener("install", evento => {
