@@ -146,7 +146,7 @@
     </div>
   </section>
 
-  <p class="aviso">Ferramenta interna da OpticDX. Não compartilhe.</p>
+  <p class="aviso">Ferramenta interna da OpticDX. Não compartilhe. · versão 3</p>
 </main>
 
 <script>
@@ -482,7 +482,7 @@ $("exportarHistorico").addEventListener("click", () => {
 });
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
 }
 if (navigator.storage && navigator.storage.persist) {
   navigator.storage.persist().catch(() => {});

@@ -1,9 +1,9 @@
 // Guarda a página no iPhone para o emissor abrir sem internet. Ao publicar uma versão nova, troque o nome do cache.
-const CACHE = "emissor-opticdx-2";
+const CACHE = "emissor-opticdx-3";
 const ARQUIVOS = ["./", "index.html", "manifest.webmanifest", "icone.png"];
 
 self.addEventListener("install", evento => {
-  evento.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ARQUIVOS)).then(() => self.skipWaiting()));
+  evento.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ARQUIVOS.map(arquivo => new Request(arquivo, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", evento => {
@@ -12,10 +12,11 @@ self.addEventListener("activate", evento => {
     .then(() => self.clients.claim()));
 });
 
-// Rede primeiro (pega a versão nova quando há internet), cache quando está sem internet.
+// Rede primeiro (pega a versão nova quando há internet), cache quando está sem internet. "no-cache" faz conferir
+// com o site a cada abertura: sem isso o iPhone usava por até 10 min a cópia que o GitHub Pages deixa guardar.
 self.addEventListener("fetch", evento => {
   if (evento.request.method !== "GET") return;
-  evento.respondWith(fetch(evento.request)
+  evento.respondWith(fetch(evento.request.url, { cache: "no-cache" })
     .then(resposta => {
       const copia = resposta.clone();
       caches.open(CACHE).then(cache => cache.put(evento.request, copia));
